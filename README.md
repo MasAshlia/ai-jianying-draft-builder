@@ -88,4 +88,3 @@ python -m venv .venv
 - 生成成功后只负责启动剪映；不控制剪映界面，也不自动导出。
 - 字幕、配音、BGM、转场、滤镜、特效和时间线编辑均不在 MVP 范围。
 - 真实剪映打开验收尚需一集真实 AI 视频素材。当前兼容性状态见 [COMPATIBILITY_TEST.md](COMPATIBILITY_TEST.md)。
-
