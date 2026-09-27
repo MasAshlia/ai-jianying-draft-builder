@@ -6,15 +6,24 @@ from pathlib import Path
 import pytest
 
 from ai_draft_builder.errors import DraftBuildError
-from ai_draft_builder.models import BuildRequest, ClipInfo
+from ai_draft_builder.models import (
+    BatchBuildRequest,
+    BatchItemStatus,
+    BatchProgressState,
+    BuildRequest,
+    ClipInfo,
+)
 from ai_draft_builder.registry import DraftRegistrar
 from ai_draft_builder.service import DraftBuildService
 from conftest import make_clips, write_valid_draft
 
 
 class ReadyEnvironment:
+    def __init__(self) -> None:
+        self.call_count = 0
+
     def ensure_ready(self, _profile) -> None:
-        return None
+        self.call_count += 1
 
 
 class FixedScanner:
@@ -44,6 +53,17 @@ class FailingAdapter:
     def build(self, staging_root, staging_name, *_args):
         (staging_root / staging_name).mkdir()
         raise DraftBuildError("模拟构建失败")
+
+
+class SelectiveFailingAdapter(JsonAdapter):
+    def __init__(self, failed_name: str) -> None:
+        self.failed_name = failed_name
+
+    def build(self, staging_root, staging_name, final_dir, draft_name, clips, profile):
+        if draft_name == self.failed_name:
+            (staging_root / staging_name).mkdir()
+            raise DraftBuildError("模拟单集构建失败")
+        return super().build(staging_root, staging_name, final_dir, draft_name, clips, profile)
 
 
 class FailingRegistrar:
@@ -101,4 +121,75 @@ def test_build_failure_cleans_only_own_transaction_folder(profile, tmp_path: Pat
         service.build(BuildRequest(tmp_path / "素材", "失败草稿"))
     assert unrelated.is_dir()
     assert not list(staging_root.glob(".txn-*"))
+
+
+def test_batch_build_is_sorted_skips_empty_and_checks_environment_once(
+    profile, tmp_path: Path
+) -> None:
+    parent = tmp_path / "中文 短剧（测试）"
+    clips = make_clips(parent / "第10集", 1)
+    make_clips(parent / "第2集", 1)
+    make_clips(parent / "第1集", 1)
+    (parent / "空集").mkdir()
+    environment = ReadyEnvironment()
+    progress = []
+    service = DraftBuildService(
+        profile,
+        scanner=FixedScanner(clips),
+        probe=FixedProbe(clips),
+        adapter=JsonAdapter(),
+        registrar=DraftRegistrar(),
+        environment=environment,
+    )
+
+    result = service.build_batch(BatchBuildRequest(parent), progress.append)
+
+    assert [item.requested_name for item in result.items] == ["空集", "第1集", "第2集", "第10集"]
+    assert [item.status for item in result.items] == [
+        BatchItemStatus.SKIPPED,
+        BatchItemStatus.SUCCESS,
+        BatchItemStatus.SUCCESS,
+        BatchItemStatus.SUCCESS,
+    ]
+    assert (result.succeeded_count, result.failed_count, result.skipped_count) == (3, 0, 1)
+    assert result.total_clips == 3
+    assert environment.call_count == 1
+    assert [event.state for event in progress] == [
+        BatchProgressState.SKIPPED,
+        BatchProgressState.PROCESSING,
+        BatchProgressState.SUCCESS,
+        BatchProgressState.PROCESSING,
+        BatchProgressState.SUCCESS,
+        BatchProgressState.PROCESSING,
+        BatchProgressState.SUCCESS,
+    ]
+
+
+def test_batch_failure_does_not_remove_successful_drafts(profile, tmp_path: Path) -> None:
+    parent = tmp_path / "短剧"
+    clips = make_clips(parent / "第1集", 2)
+    make_clips(parent / "第2集", 1)
+    make_clips(parent / "第3集", 1)
+    service = DraftBuildService(
+        profile,
+        scanner=FixedScanner(clips),
+        probe=FixedProbe(clips),
+        adapter=SelectiveFailingAdapter("第2集"),
+        registrar=DraftRegistrar(),
+        environment=ReadyEnvironment(),
+    )
+
+    result = service.build_batch(BatchBuildRequest(parent))
+
+    assert [item.status for item in result.items] == [
+        BatchItemStatus.SUCCESS,
+        BatchItemStatus.FAILED,
+        BatchItemStatus.SUCCESS,
+    ]
+    assert (profile.draft_root / "第1集").is_dir()
+    assert not (profile.draft_root / "第2集").exists()
+    assert (profile.draft_root / "第3集").is_dir()
+    root_meta = json.loads((profile.draft_root / profile.root_meta_name).read_text(encoding="utf-8"))
+    assert [item["draft_name"] for item in root_meta["all_draft_store"]] == ["第1集", "第3集"]
+    assert not list((profile.draft_root / ".ai-draft-builder-staging").glob(".txn-*"))
 
