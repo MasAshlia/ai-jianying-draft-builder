@@ -25,6 +25,9 @@ class ReadyEnvironment:
     def ensure_ready(self, _profile) -> None:
         self.call_count += 1
 
+    def ensure_commit_ready(self, _profile) -> None:
+        pass
+
 
 class FixedScanner:
     def __init__(self, clips: list[ClipInfo]) -> None:
@@ -100,12 +103,13 @@ def test_two_builds_never_overwrite_and_are_both_registered(profile, tmp_path: P
     assert [item["draft_name"] for item in root_meta["all_draft_store"]] == ["第一集", "第一集 (1)"]
 
 
-def test_registration_failure_removes_installed_half_draft(profile, tmp_path: Path) -> None:
+def test_registration_failure_preserves_installed_draft_for_review(profile, tmp_path: Path) -> None:
     clips = make_clips(tmp_path / "素材", 1)
     service = _service(profile, clips, registrar=FailingRegistrar())
     with pytest.raises(DraftBuildError, match="模拟注册失败"):
         service.build(BuildRequest(tmp_path / "素材", "失败草稿"))
-    assert not (profile.draft_root / "失败草稿").exists()
+    assert (profile.draft_root / "失败草稿").is_dir()
+    assert len(service.recover()) == 1
     root_meta = json.loads((profile.draft_root / profile.root_meta_name).read_text(encoding="utf-8"))
     assert root_meta["all_draft_store"] == []
 

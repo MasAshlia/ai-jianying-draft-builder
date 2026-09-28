@@ -9,6 +9,11 @@ import pytest
 from ai_draft_builder.models import ClipInfo, JianyingProfile
 
 
+@pytest.fixture(autouse=True)
+def isolated_appdata(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "appdata"))
+
+
 @pytest.fixture
 def profile(tmp_path: Path) -> JianyingProfile:
     exe = tmp_path / "JianyingPro" / "Apps" / "11.3.0.14362" / "JianyingPro.exe"

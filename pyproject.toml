@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-jianying-draft-builder"
-version = "0.2.0"
+version = "0.3.0"
 description = "将单集或批量 AI 视频素材按文件名顺序生成剪映草稿"
 requires-python = ">=3.12,<3.13"
 dependencies = [

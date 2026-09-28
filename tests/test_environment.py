@@ -66,3 +66,19 @@ def test_launch_jianying_uses_target_executable(monkeypatch, profile) -> None:
     launch_jianying(profile)
     assert captured["args"] == [str(profile.executable)]
     assert captured["kwargs"]["cwd"] == str(profile.executable.parent)
+
+
+def test_process_detection_error_fails_closed(monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(environment_module.subprocess, "run",
+                        lambda *_args, **_kwargs: SimpleNamespace(returncode=1, stdout=""))
+    with pytest.raises(EnvironmentCheckError, match="检测失败"):
+        environment_module.is_jianying_running()
+
+
+def test_process_detection_timeout_fails_closed(monkeypatch):
+    def timeout(*_args, **_kwargs):
+        raise environment_module.subprocess.TimeoutExpired("tasklist", 10)
+    monkeypatch.setattr(environment_module.subprocess, "run", timeout)
+    with pytest.raises(EnvironmentCheckError, match="无法检测"):
+        environment_module.is_jianying_running()

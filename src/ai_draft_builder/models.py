@@ -30,17 +30,22 @@ class BuildResult:
 class EpisodeFolder:
     source_dir: Path
     video_count: int
+    error: str = ""
 
 
 @dataclass(frozen=True, slots=True)
 class BatchBuildRequest:
     parent_dir: Path
+    selected_dirs: tuple[Path, ...] | None = None
+    name_prefix: str = ""
 
 
 class BatchItemStatus(Enum):
     SUCCESS = "success"
     FAILED = "failed"
     SKIPPED = "skipped"
+    NOT_PROCESSED = "not_processed"
+    NEEDS_REVIEW = "needs_review"
 
 
 class BatchProgressState(Enum):
@@ -48,6 +53,8 @@ class BatchProgressState(Enum):
     SUCCESS = "success"
     FAILED = "failed"
     SKIPPED = "skipped"
+    NOT_PROCESSED = "not_processed"
+    NEEDS_REVIEW = "needs_review"
 
 
 @dataclass(frozen=True, slots=True)
@@ -57,6 +64,8 @@ class BatchProgress:
     source_dir: Path
     state: BatchProgressState
     message: str
+    stage: str = ""
+    video_name: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +85,9 @@ class BatchBuildResult:
     skipped_count: int
     total_clips: int
     total_duration_us: int
+    stopped: bool = False
+    task_id: str = ""
+    report_path: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)

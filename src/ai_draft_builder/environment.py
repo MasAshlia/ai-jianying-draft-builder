@@ -56,22 +56,22 @@ def read_windows_file_version(path: Path) -> str:
         info = ctypes.cast(pointer, ctypes.POINTER(_VSFixedFileInfo)).contents
         ms, ls = info.dwFileVersionMS, info.dwFileVersionLS
         return f"{ms >> 16}.{ms & 0xFFFF}.{ls >> 16}.{ls & 0xFFFF}"
-    except Exception:
-        # 官方安装目录的版本文件夹仍可作为明确的降级判断依据。
-        return path.parent.name
+    except Exception as exc:
+        raise EnvironmentCheckError("无法读取剪映程序的真实版本，已停止生成。") from exc
 
 
 def is_jianying_running() -> bool:
     flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-    completed = subprocess.run(
-        ["tasklist", "/FI", "IMAGENAME eq JianyingPro.exe", "/FO", "CSV", "/NH"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        creationflags=flags,
-        check=False,
-    )
+    try:
+        completed = subprocess.run(
+            ["tasklist", "/FI", "IMAGENAME eq JianyingPro.exe", "/FO", "CSV", "/NH"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            creationflags=flags, check=False, timeout=10,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise EnvironmentCheckError("无法检测剪映运行状态，已停止写入，请稍后重试。") from exc
+    if completed.returncode != 0 or not completed.stdout.strip():
+        raise EnvironmentCheckError("剪映进程检测失败，已停止写入，请稍后重试。")
     return "jianyingpro.exe" in completed.stdout.casefold()
 
 
@@ -117,8 +117,7 @@ class EnvironmentChecker:
             raise EnvironmentCheckError(
                 f"检测到剪映版本 {installed_version}，本版本工具只允许 {profile.version}。"
             )
-        if self.process_checker():
-            raise EnvironmentCheckError("剪映正在运行。请完全退出剪映后再生成草稿。")
+        self.ensure_commit_ready(profile)
         if not profile.draft_root.is_dir():
             raise EnvironmentCheckError(f"找不到剪映草稿目录：{profile.draft_root}")
         root_meta = profile.draft_root / profile.root_meta_name
@@ -128,3 +127,14 @@ class EnvironmentChecker:
             raise EnvironmentCheckError("剪映草稿目录不可写，请检查权限。")
         if self.disk_usage(profile.draft_root).free < self.minimum_free_bytes:
             raise EnvironmentCheckError("磁盘剩余空间不足 50 MB，无法安全生成草稿。")
+
+    def ensure_commit_ready(self, profile: JianyingProfile) -> None:
+        try:
+            if self.process_checker():
+                raise EnvironmentCheckError("剪映正在运行。请完全退出剪映后再生成草稿。")
+            if self.disk_usage(profile.draft_root).free < self.minimum_free_bytes:
+                raise EnvironmentCheckError("磁盘剩余空间不足，已停止后续生成。")
+        except EnvironmentCheckError:
+            raise
+        except Exception as exc:
+            raise EnvironmentCheckError("无法检查剪映进程或磁盘状态，已停止后续生成。") from exc

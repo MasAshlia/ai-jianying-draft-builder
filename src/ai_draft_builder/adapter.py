@@ -33,6 +33,7 @@ class JianyingAdapter:
         draft_name: str,
         clips: list[ClipInfo],
         profile: JianyingProfile,
+        progress_callback=None,
     ) -> Path:
         timeline = self.timeline_builder.build(clips)
         draft_id = str(uuid.uuid4()).upper()
@@ -60,6 +61,8 @@ class JianyingAdapter:
 
             main_track = script.append_track(TrackSpec(TrackType.video, "主视频轨"))
             for item in timeline:
+                if progress_callback:
+                    progress_callback("构建", item.clip.path.name)
                 material = VideoMaterial(str(item.clip.path))
                 if material.material_type != "video":
                     raise ValueError(f"素材“{item.clip.path.name}”不是视频")

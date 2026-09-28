@@ -28,6 +28,12 @@ def natural_sort_key(path: Path | str) -> tuple[tuple[int, object, int], ...]:
 
 class MediaScanner:
     def scan(self, source_dir: Path) -> list[Path]:
+        try:
+            return self._scan(source_dir)
+        except OSError as exc:
+            raise UserFacingError(f"无法读取素材文件夹“{source_dir.name}”，请检查路径与权限：{exc}") from exc
+
+    def _scan(self, source_dir: Path) -> list[Path]:
         source_dir = source_dir.expanduser()
         if not source_dir.exists():
             raise UserFacingError(f"素材文件夹不存在：{source_dir}")
@@ -50,6 +56,12 @@ class EpisodeBatchScanner:
     """发现总素材目录下的直属分集文件夹，不递归。"""
 
     def discover(self, parent_dir: Path) -> list[EpisodeFolder]:
+        try:
+            return self._discover(parent_dir)
+        except OSError as exc:
+            raise UserFacingError(f"无法读取总素材文件夹，请检查路径与权限：{exc}") from exc
+
+    def _discover(self, parent_dir: Path) -> list[EpisodeFolder]:
         parent_dir = parent_dir.expanduser()
         if not parent_dir.exists():
             raise UserFacingError(f"总素材文件夹不存在：{parent_dir}")
@@ -59,23 +71,25 @@ class EpisodeBatchScanner:
         directories = [
             item.resolve()
             for item in parent_dir.iterdir()
-            if item.is_dir() and not item.is_symlink() and not item.name.startswith(".")
+            if item.is_dir() and not item.is_symlink() and not item.is_junction()
+            and not item.name.startswith(".")
         ]
         directories.sort(key=natural_sort_key)
         if not directories:
             raise UserFacingError("所选总素材文件夹中没有可用的分集子文件夹。")
 
-        return [
-            EpisodeFolder(
-                source_dir=directory,
-                video_count=sum(
+        episodes = []
+        for directory in directories:
+            try:
+                count = sum(
                     1
                     for item in directory.iterdir()
                     if item.is_file() and item.suffix.casefold() in SUPPORTED_EXTENSIONS
-                ),
-            )
-            for directory in directories
-        ]
+                )
+                episodes.append(EpisodeFolder(directory, count))
+            except OSError as exc:
+                episodes.append(EpisodeFolder(directory, 0, f"无法读取分集目录，请检查权限：{exc}"))
+        return episodes
 
 
 def sorted_video_names(items: Iterable[Path]) -> list[str]:

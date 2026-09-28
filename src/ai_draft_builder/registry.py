@@ -2,12 +2,11 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import time
 import uuid
 from pathlib import Path
 
-from .errors import DraftBuildError
+from .errors import DraftBuildError, FatalBuildError
 from .models import JianyingProfile
 from .validator import ValidationResult
 
@@ -83,17 +82,18 @@ class DraftRegistrar:
         draft_name: str,
         validation: ValidationResult,
         profile: JianyingProfile,
+        before_replace=None,
+        expected_original: bytes | None = None,
     ) -> Path:
         root_meta = profile.draft_root / profile.root_meta_name
         original = root_meta.read_bytes()
-        try:
-            data = json.loads(original.decode("utf-8-sig"))
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
-            raise DraftBuildError("剪映草稿索引文件不是可识别的 JSON，已停止写入。") from exc
+        if expected_original is not None and original != expected_original:
+            raise FatalBuildError("剪映草稿索引已被其他程序修改，已停止后续写入。")
+        data = self._decode(original)
 
         stores = data.get("all_draft_store")
         if not isinstance(stores, list):
-            raise DraftBuildError("剪映草稿索引缺少 all_draft_store，已停止写入。")
+            raise FatalBuildError("剪映草稿索引缺少 all_draft_store，已停止写入。")
         if any(item.get("draft_id") == validation.draft_id for item in stores):
             raise DraftBuildError("草稿 ID 已存在，已停止写入。")
 
@@ -113,7 +113,10 @@ class DraftRegistrar:
         backup_dir = self.backup_dir or (profile.draft_root.parent / ".ai-draft-builder-backups")
         backup_dir.mkdir(parents=True, exist_ok=True)
         backup_path = backup_dir / f"root_meta_info.{now_us}.bak"
-        shutil.copy2(root_meta, backup_path)
+        with backup_path.open("xb") as backup:
+            backup.write(original)
+            backup.flush()
+            os.fsync(backup.fileno())
 
         temp_path = root_meta.with_name(f".{root_meta.name}.{uuid.uuid4().hex}.tmp")
         try:
@@ -121,18 +124,36 @@ class DraftRegistrar:
                 json.dump(data, handle, ensure_ascii=False, separators=(",", ":"))
                 handle.flush()
                 os.fsync(handle.fileno())
+            if before_replace:
+                before_replace()
+            if root_meta.read_bytes() != original:
+                raise FatalBuildError("剪映草稿索引已被其他程序修改，已停止后续写入。")
             os.replace(temp_path, root_meta)
             return backup_path
         except Exception as exc:
             temp_path.unlink(missing_ok=True)
-            raise DraftBuildError(f"更新剪映草稿列表失败，原索引未被覆盖：{exc}") from exc
+            if isinstance(exc, FatalBuildError):
+                raise
+            raise FatalBuildError(f"更新剪映草稿列表失败，原索引未被覆盖：{exc}") from exc
+
+    @staticmethod
+    def _decode(raw: bytes) -> dict:
+        try:
+            data = json.loads(raw.decode("utf-8-sig"))
+            if not isinstance(data, dict) or not isinstance(data.get("all_draft_store"), list):
+                raise ValueError("缺少草稿列表")
+            if any(not isinstance(item, dict) for item in data["all_draft_store"]):
+                raise ValueError("草稿条目格式无效")
+            return data
+        except (UnicodeDecodeError, ValueError) as exc:
+            raise FatalBuildError("剪映草稿索引格式无效，已停止写入。") from exc
 
     @staticmethod
     def _read(profile: JianyingProfile) -> dict:
         path = profile.draft_root / profile.root_meta_name
         try:
-            return json.loads(path.read_text(encoding="utf-8-sig"))
+            return DraftRegistrar._decode(path.read_bytes())
         except FileNotFoundError as exc:
-            raise DraftBuildError(f"找不到剪映草稿索引：{path}") from exc
+            raise FatalBuildError(f"找不到剪映草稿索引：{path}") from exc
         except (OSError, json.JSONDecodeError) as exc:
-            raise DraftBuildError(f"无法读取剪映草稿索引：{exc}") from exc
+            raise FatalBuildError(f"无法读取剪映草稿索引：{exc}") from exc
