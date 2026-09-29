@@ -24,6 +24,7 @@ class BuildResult:
     draft_dir: Path
     clip_count: int
     duration_us: int
+    root_meta_backup_path: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,11 +91,19 @@ class BatchBuildResult:
     report_path: Path | None = None
 
 
+class CompatibilityMode(Enum):
+    VERIFIED = "verified"
+    LEGACY_IMPORT_PROBE = "legacy_import_probe"
+    VERIFIED_LEGACY_IMPORT = "verified_legacy_import"
+
+
 @dataclass(frozen=True, slots=True)
 class JianyingProfile:
     version: str
     executable: Path
     draft_root: Path
+    draft_app_version: str = "11.3.0"
+    compatibility_mode: CompatibilityMode = CompatibilityMode.VERIFIED
     draft_content_name: str = "draft_content.json"
     draft_meta_name: str = "draft_meta_info.json"
     root_meta_name: str = "root_meta_info.json"
@@ -102,6 +111,20 @@ class JianyingProfile:
     height: int = 1920
     fps: int = 30
 
+    @property
+    def is_legacy_import_probe(self) -> bool:
+        return self.compatibility_mode is CompatibilityMode.LEGACY_IMPORT_PROBE
+
 
 TARGET_VERSION = "11.3.0.14362"
+VERIFIED_LEGACY_IMPORT_VERSION = "11.5.0.14471"
+COMPATIBILITY_TEST_DRAFT_NAME = "AIDraftBuilder-11.5-Compatibility-Test"
+
+SUPPORTED_VERSION_PROFILES: dict[str, tuple[str, CompatibilityMode]] = {
+    TARGET_VERSION: ("11.3.0", CompatibilityMode.VERIFIED),
+    VERIFIED_LEGACY_IMPORT_VERSION: (
+        "11.3.0",
+        CompatibilityMode.VERIFIED_LEGACY_IMPORT,
+    ),
+}
 

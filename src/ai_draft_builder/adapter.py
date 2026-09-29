@@ -56,7 +56,7 @@ class JianyingAdapter:
                 platform = script.content.setdefault(key, {})
                 platform["app_id"] = 3704
                 platform["app_source"] = "lv"
-                platform["app_version"] = "11.3.0"
+                platform["app_version"] = profile.draft_app_version
                 platform["os"] = "windows"
 
             main_track = script.append_track(TrackSpec(TrackType.video, "主视频轨"))

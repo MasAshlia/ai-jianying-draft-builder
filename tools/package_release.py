@@ -36,8 +36,13 @@ def audit(app: Path):
     needles = [str(ROOT).casefold(), str(Path.home()).casefold(), "masashlia"]
     needles += [value.replace("\\", "/") for value in list(needles)]
     user = os.environ.get("USERNAME", "")
+    generic_windows_accounts = {"administrator", "admin", "user", "default", "public"}
     personal_path = re.compile(r"[a-z]:[\\/]+users[\\/]+[^\\/\s\x00]+|/Users/[^/\s\x00]+", re.I)
-    username = re.compile(r"(?<![\w\d])" + re.escape(user) + r"(?![\w\d])", re.I) if user else None
+    username = (
+        re.compile(r"(?<![\w\d])" + re.escape(user) + r"(?![\w\d])", re.I)
+        if user and user.casefold() not in generic_windows_accounts
+        else None
+    )
     problems = []
 
     def check(text, origin):

@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import uuid
+from dataclasses import replace
 from pathlib import Path
 
 import ai_draft_builder.adapter as adapter_module
 from ai_draft_builder.adapter import JianyingAdapter
-from ai_draft_builder.models import ClipInfo
+from ai_draft_builder.models import ClipInfo, CompatibilityMode
 from ai_draft_builder.validator import DraftValidator
 from pyJianYingDraft import CropSettings, VideoMaterial as RealVideoMaterial
 
@@ -51,4 +52,36 @@ def test_adapter_generates_unique_ids_and_valid_draft(monkeypatch, profile, tmp_
         clips[0].duration_us + clips[1].duration_us,
     ]
     assert content["platform"]["app_version"] == "11.3.0"
+
+
+def test_11_5_verified_import_still_writes_11_3_app_version(
+    monkeypatch, profile, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(adapter_module, "VideoMaterial", FakeVideoMaterial)
+    probe_profile = replace(
+        profile,
+        version="11.5.0.14471",
+        draft_app_version="11.3.0",
+        compatibility_mode=CompatibilityMode.VERIFIED_LEGACY_IMPORT,
+    )
+    clip_path = tmp_path / "001.mp4"
+    clip_path.write_bytes(b"x")
+    clips = [ClipInfo(clip_path.resolve(), 1_000_000, 1080, 1920)]
+    staging = tmp_path / "staging-11-5"
+    staging.mkdir()
+
+    draft = JianyingAdapter().build(
+        staging,
+        ".txn-probe",
+        probe_profile.draft_root / "AIDraftBuilder-11.5-Compatibility-Test",
+        "AIDraftBuilder-11.5-Compatibility-Test",
+        clips,
+        probe_profile,
+    )
+    content = json.loads(
+        (draft / probe_profile.draft_content_name).read_text(encoding="utf-8")
+    )
+
+    assert content["platform"]["app_version"] == "11.3.0"
+    assert content["last_modified_platform"]["app_version"] == "11.3.0"
 

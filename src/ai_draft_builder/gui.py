@@ -11,7 +11,8 @@ from tkinter import filedialog, messagebox, ttk
 from . import __version__
 from .environment import default_profile, launch_jianying
 from .models import (BatchBuildRequest, BatchBuildResult, BatchItemStatus, BatchProgress,
-                     BuildRequest, BuildResult)
+                     BuildRequest, BuildResult, COMPATIBILITY_TEST_DRAFT_NAME,
+                     JianyingProfile)
 from .runtime import application_dir, configure_logging
 from .scanner import EpisodeBatchScanner, MediaScanner
 from .service import DraftBuildService
@@ -36,6 +37,10 @@ def should_launch_after_batch(result: BatchBuildResult) -> bool:
     return result.succeeded_count > 0 and not result.stopped
 
 
+def should_launch_after_single(profile: JianyingProfile) -> bool:
+    return not profile.is_legacy_import_probe
+
+
 def retry_failed_dirs(result: BatchBuildResult) -> tuple[Path, ...]:
     return tuple(item.source_dir for item in result.items if item.status is BatchItemStatus.FAILED)
 
@@ -47,7 +52,7 @@ class DraftBuilderApp:
         self.scanner, self.batch_scanner = MediaScanner(), EpisodeBatchScanner()
         self.mode_var = tk.StringVar(value=SINGLE_MODE)
         self.source_var, self.name_var, self.status_var = tk.StringVar(), tk.StringVar(), tk.StringVar()
-        self.auto_open_var = tk.BooleanVar(value=True)
+        self.auto_open_var = tk.BooleanVar(value=not self.service.profile.is_legacy_import_probe)
         self.events = SimpleQueue()
         self.stop_event = threading.Event()
         self.busy = False
@@ -165,6 +170,9 @@ class DraftBuilderApp:
             widget.configure(state="disabled" if busy else "normal")
         for widget in (self.all_button, self.none_button):
             widget.configure(state="normal" if not busy and self.mode_var.get() == BATCH_MODE else "disabled")
+        if self.service.profile.is_legacy_import_probe:
+            self.batch_radio.configure(state="disabled")
+            self.auto_open_check.configure(state="disabled")
         self.retry_button.configure(state="normal" if not busy and self.last_result and retry_failed_dirs(self.last_result) else "disabled")
         self.stop_button.configure(state="normal" if building else "disabled")
 
@@ -203,7 +211,10 @@ class DraftBuilderApp:
         self.source_var.set(str(source))
         self.last_result, self.retry_request = None, None
         if not batch:
-            self.name_var.set(source.name)
+            self.name_var.set(
+                COMPATIBILITY_TEST_DRAFT_NAME
+                if self.service.profile.is_legacy_import_probe else source.name
+            )
         self._set_busy(True)
         self.status_var.set("正在扫描素材……")
         self._background(self._scan_worker, source, batch)
@@ -308,7 +319,7 @@ class DraftBuilderApp:
                 launch = should_launch_after_batch(result)
             else:
                 result = self.service.build(request)
-                launch = True
+                launch = should_launch_after_single(self.service.profile)
             warning = None
             launched = False
             if auto_open and launch and not self.stop_event.is_set():
@@ -350,7 +361,8 @@ class DraftBuilderApp:
                        f"任务记录：{result.report_path}")
         else:
             summary = (f"生成成功：{result.draft_dir.name}\n片段 {result.clip_count} 个，"
-                       f"总时长 {_format_duration(result.duration_us)}\n草稿路径：{result.draft_dir}")
+                       f"总时长 {_format_duration(result.duration_us)}\n草稿路径：{result.draft_dir}\n"
+                       f"根索引备份：{result.root_meta_backup_path or '未返回备份路径'}")
             for iid, row in self.rows.items():
                 row.update(status="success", message=str(result.draft_dir), result=result)
                 self._render_row(iid)
@@ -358,6 +370,8 @@ class DraftBuilderApp:
             summary += f"\n草稿已保留，剪映未能自动启动：{warning}"
         elif launched:
             summary += "\n剪映正在启动，请勿移动或删除源素材。"
+        elif self.service.profile.is_legacy_import_probe:
+            summary += "\n兼容性探针不会自动启动剪映，请人工打开并验收。"
         self._set_busy(False)
         self.status_var.set(summary)
         if not self.close_after:

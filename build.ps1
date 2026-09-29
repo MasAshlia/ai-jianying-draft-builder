@@ -35,7 +35,7 @@ Push-Location $projectRoot
 try {
     & $pythonExe -m pytest
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-    & $pythonExe -m PyInstaller --noconfirm --distpath $releaseDir (Join-Path $projectRoot "AIDraftBuilder.spec")
+    & $pythonExe -m PyInstaller --noconfirm --clean --distpath $releaseDir (Join-Path $projectRoot "AIDraftBuilder.spec")
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     $output = Join-Path $releaseDir "smoke-output"
     $releaseExe = Join-Path $releaseDir "AIDraftBuilder\AIDraftBuilder.exe"

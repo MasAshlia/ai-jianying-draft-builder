@@ -1,15 +1,16 @@
 # 0.3.0 兼容性与投产验证记录
 
-本轮日期：2026-09-27。状态：工位试用候选版，尚未通过两台工位的人工投产验收。
+本轮日期：2026-09-29。状态：本机剪映 11.5 兼容性人工验收已通过；多工位批量投产验收仍按 `ACCEPTANCE_CHECKLIST.md` 执行。
 
 ## 已知环境
 
 - 开发机 Windows 11 64 位，Python 3.12.10。
-- 目标剪映专业版 `11.3.0.14362`。
-- 安装路径 `C:\Program Files\JianyingPro\Apps\11.3.0.14362\JianyingPro.exe`。
+- 精确支持剪映专业版 `11.3.0.14362` 和 `11.5.0.14471`。
+- 本机 11.5 安装路径 `%LOCALAPPDATA%\JianyingPro\Apps\11.5.0.14471\JianyingPro.exe`。
 - 草稿目录 `%LOCALAPPDATA%\JianyingPro\User Data\Projects\com.lveditor.draft`。
 - 主文件规则 `draft_content.json`，明文根索引 `root_meta_info.json`。
 - `pyJianYingDraft==0.3.0`；新草稿 ID 每次重新生成。
+- 11.5 使用 11.3 明文格式向后兼容导入；人工确认可打开、编辑、保存并重新打开后，兼容模式已提升为 `verified_legacy_import`。
 
 ## 历史验证与证据边界
 

@@ -96,6 +96,10 @@ class DraftRegistrar:
             raise FatalBuildError("剪映草稿索引缺少 all_draft_store，已停止写入。")
         if any(item.get("draft_id") == validation.draft_id for item in stores):
             raise DraftBuildError("草稿 ID 已存在，已停止写入。")
+        if profile.is_legacy_import_probe and any(
+            item.get("draft_name") == draft_name for item in stores
+        ):
+            raise DraftBuildError("兼容性测试草稿已注册，已停止写入。")
 
         now_us = time.time_ns() // 1_000
         stores.append(

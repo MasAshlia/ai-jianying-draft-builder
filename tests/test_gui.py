@@ -1,11 +1,13 @@
 from pathlib import Path
+from dataclasses import replace
 import tkinter as tk
 from types import SimpleNamespace
 
 import pytest
 
 import ai_draft_builder.gui as gui
-from ai_draft_builder.models import BatchBuildRequest, BatchBuildResult, BatchItemResult, BatchItemStatus, EpisodeFolder
+from ai_draft_builder.models import (BatchBuildRequest, BatchBuildResult, BatchItemResult,
+    BatchItemStatus, CompatibilityMode, EpisodeFolder)
 
 
 @pytest.fixture(scope="module")
@@ -91,3 +93,24 @@ def test_recovery_rows_cannot_be_selected(app, tmp_path):
     app._toggle(iid)
     app._select_all(True)
     assert not app.rows[iid]["selected"]
+
+
+def test_11_5_probe_never_auto_launches_jianying(profile):
+    probe_profile = replace(
+        profile,
+        version="11.5.0.14471",
+        compatibility_mode=CompatibilityMode.LEGACY_IMPORT_PROBE,
+    )
+
+    assert gui.should_launch_after_single(profile) is True
+    assert gui.should_launch_after_single(probe_profile) is False
+
+
+def test_verified_11_5_import_can_auto_launch_jianying(profile):
+    verified_profile = replace(
+        profile,
+        version="11.5.0.14471",
+        compatibility_mode=CompatibilityMode.VERIFIED_LEGACY_IMPORT,
+    )
+
+    assert gui.should_launch_after_single(verified_profile) is True

@@ -9,17 +9,63 @@ from pathlib import Path
 from typing import Callable
 
 from .errors import EnvironmentCheckError
-from .models import JianyingProfile, TARGET_VERSION
+from .models import JianyingProfile, SUPPORTED_VERSION_PROFILES, TARGET_VERSION
+
+
+def profile_for_version(version: str, executable: Path, draft_root: Path) -> JianyingProfile:
+    try:
+        draft_app_version, compatibility_mode = SUPPORTED_VERSION_PROFILES[version]
+    except KeyError as exc:
+        raise EnvironmentCheckError(
+            f"检测到剪映版本 {version}，当前仅支持："
+            f"{', '.join(SUPPORTED_VERSION_PROFILES)}。"
+        ) from exc
+    return JianyingProfile(
+        version=version,
+        executable=executable,
+        draft_root=draft_root,
+        draft_app_version=draft_app_version,
+        compatibility_mode=compatibility_mode,
+    )
 
 
 def default_profile() -> JianyingProfile:
     program_files = Path(os.environ.get("ProgramFiles", r"C:\Program Files"))
     local_app_data = Path(os.environ.get("LOCALAPPDATA", ""))
-    return JianyingProfile(
-        version=TARGET_VERSION,
-        executable=program_files / "JianyingPro" / "Apps" / TARGET_VERSION / "JianyingPro.exe",
-        draft_root=local_app_data / "JianyingPro" / "User Data" / "Projects" / "com.lveditor.draft",
+    draft_root = (
+        local_app_data / "JianyingPro" / "User Data" / "Projects" / "com.lveditor.draft"
     )
+    local_apps = local_app_data / "JianyingPro" / "Apps"
+    wrapper = local_apps / "JianyingPro.exe"
+    if wrapper.is_file():
+        try:
+            installed_version = read_windows_file_version(wrapper)
+        except EnvironmentCheckError:
+            installed_version = ""
+        if installed_version in SUPPORTED_VERSION_PROFILES:
+            versioned = local_apps / installed_version / "JianyingPro.exe"
+            executable = versioned if versioned.is_file() else wrapper
+            return profile_for_version(installed_version, executable, draft_root)
+    else:
+        installed_version = ""
+
+    versions = sorted(
+        SUPPORTED_VERSION_PROFILES,
+        key=lambda value: tuple(int(part) for part in value.split(".")),
+        reverse=True,
+    )
+    for version in versions:
+        versioned = local_apps / version / "JianyingPro.exe"
+        if versioned.is_file():
+            return profile_for_version(version, versioned, draft_root)
+
+    if wrapper.is_file():
+        return JianyingProfile(installed_version, wrapper, draft_root)
+
+    legacy_executable = (
+        program_files / "JianyingPro" / "Apps" / TARGET_VERSION / "JianyingPro.exe"
+    )
+    return profile_for_version(TARGET_VERSION, legacy_executable, draft_root)
 
 
 class _VSFixedFileInfo(ctypes.Structure):
@@ -113,6 +159,17 @@ class EnvironmentChecker:
                 f"未找到剪映 {profile.version}：{profile.executable}"
             )
         installed_version = self.version_reader(profile.executable)
+        if installed_version not in SUPPORTED_VERSION_PROFILES:
+            raise EnvironmentCheckError(
+                f"检测到剪映版本 {installed_version}，当前仅支持："
+                f"{', '.join(SUPPORTED_VERSION_PROFILES)}。"
+            )
+        expected_app_version, expected_mode = SUPPORTED_VERSION_PROFILES[installed_version]
+        if (
+            profile.draft_app_version != expected_app_version
+            or profile.compatibility_mode is not expected_mode
+        ):
+            raise EnvironmentCheckError("剪映兼容配置与支持映射不一致，已停止生成草稿。")
         if installed_version != profile.version:
             raise EnvironmentCheckError(
                 f"检测到剪映版本 {installed_version}，本版本工具只允许 {profile.version}。"

@@ -4,11 +4,12 @@ Windows 本地工具，支持单集和批量分集。每集素材按文件名自
 
 ## 运行环境与安装
 
-- Windows 10/11 64 位；剪映专业版准确版本 `11.3.0.14362`。
+- Windows 10/11 64 位；精确支持剪映专业版 `11.3.0.14362` 和 `11.5.0.14471`。
 - 公司工位无需 Python，解压整个 `AIDraftBuilder-0.3.0-win64.zip`，运行其中的 `AIDraftBuilder/AIDraftBuilder.exe`。
 - 必须保留 `_internal` 和程序目录中的其他文件，不能只复制 EXE。
 - 支持本地固定素材目录；素材通过绝对路径引用，生成后不要移动、重命名或删除。
-- 默认安装位置为 `C:\Program Files\JianyingPro\Apps\11.3.0.14362\JianyingPro.exe`，草稿位置为 `%LOCALAPPDATA%\JianyingPro\User Data\Projects\com.lveditor.draft`。未满足时显示错误；本版不支持自定义安装位置或草稿目录。
+- 支持 Program Files 下的 11.3 安装，以及 `%LOCALAPPDATA%\JianyingPro\Apps` 下的入口程序和完整版本目录；草稿位置为 `%LOCALAPPDATA%\JianyingPro\User Data\Projects\com.lveditor.draft`。其他版本或自定义草稿目录仍会拒绝。
+- 剪映 `11.5.0.14471` 使用已通过本机人工验收的 11.3 明文草稿向后兼容导入，由剪映首次打开后升级；不宣称支持 11.5 原生加密草稿写出。
 
 ## 单集与批量操作
 

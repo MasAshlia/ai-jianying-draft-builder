@@ -15,7 +15,7 @@ from .environment import EnvironmentChecker
 from .errors import DraftBuildError, EnvironmentCheckError, FatalBuildError, NeedsReviewError, UserFacingError
 from .models import (BatchBuildRequest, BatchBuildResult, BatchItemResult, BatchItemStatus,
                      BatchProgress, BatchProgressState, BuildRequest, BuildResult, EpisodeFolder,
-                     JianyingProfile)
+                     JianyingProfile, COMPATIBILITY_TEST_DRAFT_NAME)
 from .naming import unique_draft_name, validate_draft_name
 from .preparation import LocalPreparer, ProcessPreparer, verify_sources
 from .probe import MediaProbe
@@ -100,6 +100,8 @@ class DraftBuildService:
         try:
             with GenerationLock(self.profile.draft_root):
                 self.environment.ensure_ready(self.profile)
+                if self.profile.is_legacy_import_probe:
+                    raise DraftBuildError("剪映 11.5 兼容性探针仅允许单集模式。")
                 unresolved = reconcile_records(self.records_dir, self.profile)
                 episodes = self._episodes(request)
                 names = [request.name_prefix + episode.source_dir.name for episode in episodes]
@@ -198,12 +200,24 @@ class DraftBuildService:
     def _build_one(self, request: BuildRequest, journal: TaskJournal, index: int, progress) -> BuildResult:
         started = time.monotonic()
         name = validate_draft_name(request.draft_name)
+        if self.profile.is_legacy_import_probe and name != COMPATIBILITY_TEST_DRAFT_NAME:
+            raise DraftBuildError(
+                "剪映 11.5 兼容性探针的草稿名必须精确为："
+                f"{COMPATIBILITY_TEST_DRAFT_NAME}"
+            )
         journal.update(index, status="processing", phase="scanning", started_at=time.time())
         paths = self.scanner.scan(request.source_dir)
         original = (self.profile.draft_root / self.profile.root_meta_name).read_bytes()
         DraftRegistrar._decode(original)
         names = self.registrar.existing_names(self.profile)
-        final_name = unique_draft_name(self.profile.draft_root, name, names)
+        if self.profile.is_legacy_import_probe:
+            final_name = name
+            if final_name in names or (self.profile.draft_root / final_name).exists():
+                raise DraftBuildError(
+                    "兼容性测试草稿已存在。为防止覆盖或自动追加名称，已停止生成。"
+                )
+        else:
+            final_name = unique_draft_name(self.profile.draft_root, name, names)
         final_dir = self.profile.draft_root / final_name
         staging_root = self.profile.draft_root / _STAGING_DIR_NAME
         if staging_root.is_symlink() or staging_root.is_junction():
@@ -231,15 +245,18 @@ class DraftBuildService:
             os.rename(staging_dir, final_dir)
             installed = True
             journal.update(index, phase="registering")
-            self.registrar.register(draft_dir=final_dir, draft_name=final_name,
-                                    validation=validation, profile=self.profile,
-                                    expected_original=original, before_replace=self._commit_guard)
+            backup_path = self.registrar.register(
+                draft_dir=final_dir, draft_name=final_name,
+                validation=validation, profile=self.profile,
+                expected_original=original, before_replace=self._commit_guard)
             journal.update(index, phase="committed", status="success", message=f"已生成：{final_name}",
                            elapsed_seconds=round(time.monotonic() - started, 3))
             logger.info("任务 %s 成功 %s 剪映 %s 片段 %d 时长 %d 耗时 %.2fs",
                         journal.task_id, final_dir, self.profile.version, validation.clip_count,
                         validation.duration_us, time.monotonic() - started)
-            return BuildResult(final_dir, validation.clip_count, validation.duration_us)
+            return BuildResult(
+                final_dir, validation.clip_count, validation.duration_us, backup_path
+            )
         except Exception as exc:
             if installed:
                 raise NeedsReviewError(f"草稿安装后的操作未完成，目录已保留待核查：{final_dir}。原因：{exc}") from exc
